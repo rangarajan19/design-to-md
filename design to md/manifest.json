@@ -1,0 +1,8 @@
+{
+  "name": "Frame to Markdown",
+  "id": "frame-to-markdown",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"]
+}

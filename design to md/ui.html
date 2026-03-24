@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Frame to Markdown</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #1e1e1e;
+      color: #e0e0e0;
+      padding: 16px;
+      font-size: 13px;
+    }
+
+    h1 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #ffffff;
+    }
+
+    p.hint {
+      color: #888;
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    button {
+      flex: 1;
+      padding: 8px 12px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: background 0.15s;
+    }
+
+    #generateBtn {
+      background: #0d99ff;
+      color: #fff;
+    }
+    #generateBtn:hover { background: #0b87e0; }
+
+    #copyBtn, #downloadBtn {
+      background: #2c2c2c;
+      color: #ccc;
+      border: 1px solid #3a3a3a;
+    }
+    #copyBtn:hover, #downloadBtn:hover { background: #383838; }
+
+    #copyBtn:disabled, #downloadBtn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    textarea {
+      width: 100%;
+      height: 360px;
+      background: #141414;
+      color: #d4d4d4;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 12px;
+      font-family: 'Menlo', 'Courier New', monospace;
+      font-size: 11px;
+      line-height: 1.6;
+      resize: none;
+      outline: none;
+    }
+
+    textarea:focus {
+      border-color: #0d99ff;
+    }
+
+    #status {
+      margin-top: 8px;
+      font-size: 11px;
+      color: #888;
+      min-height: 16px;
+    }
+
+    #status.error { color: #ff6b6b; }
+    #status.success { color: #6bcb77; }
+  </style>
+</head>
+<body>
+  <h1>Frame to Markdown</h1>
+  <p class="hint">Select a frame in Figma, then click Generate.</p>
+
+  <div class="btn-row">
+    <button id="generateBtn">Generate Markdown</button>
+    <button id="copyBtn" disabled>Copy</button>
+    <button id="downloadBtn" disabled>Download .md</button>
+  </div>
+
+  <textarea id="output" placeholder="Your markdown will appear here..." readonly></textarea>
+  <div id="status"></div>
+
+  <script>
+    const generateBtn = document.getElementById('generateBtn');
+    const copyBtn = document.getElementById('copyBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const output = document.getElementById('output');
+    const status = document.getElementById('status');
+
+    generateBtn.addEventListener('click', () => {
+      setStatus('', '');
+      output.value = '';
+      copyBtn.disabled = true;
+      downloadBtn.disabled = true;
+      parent.postMessage({ pluginMessage: { type: 'generate' } }, '*');
+    });
+
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(output.value).then(() => {
+        setStatus('Copied to clipboard!', 'success');
+      }).catch(() => {
+        output.select();
+        document.execCommand('copy');
+        setStatus('Copied!', 'success');
+      });
+    });
+
+    downloadBtn.addEventListener('click', () => {
+      const blob = new Blob([output.value], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'frame.md';
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatus('Downloaded frame.md', 'success');
+    });
+
+    window.onmessage = (event) => {
+      const msg = event.data.pluginMessage;
+      if (!msg) return;
+
+      if (msg.type === 'result') {
+        output.value = msg.markdown;
+        copyBtn.disabled = false;
+        downloadBtn.disabled = false;
+        setStatus('Markdown generated successfully.', 'success');
+      }
+
+      if (msg.type === 'error') {
+        setStatus(msg.message, 'error');
+      }
+    };
+
+    function setStatus(text, type) {
+      status.textContent = text;
+      status.className = type;
+    }
+  </script>
+</body>
+</html>
