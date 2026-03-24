@@ -10,12 +10,21 @@ figma.ui.onmessage = (msg) => {
     }
 
     const node = selection[0];
-    if (node.type !== 'FRAME' && node.type !== 'COMPONENT' && node.type !== 'GROUP') {
-      figma.ui.postMessage({ type: 'error', message: 'Please select a Frame, Component, or Group.' });
+    const allowed = ['FRAME', 'COMPONENT', 'COMPONENT_SET', 'GROUP'];
+    if (!allowed.includes(node.type)) {
+      figma.ui.postMessage({ type: 'error', message: 'Please select a Frame, Component, Component Set, or Group.' });
       return;
     }
 
     const data = analyzeNode(node);
+
+    // Find instances if a component or component set is selected
+    if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') {
+      data.instances = findInstances(node);
+    } else {
+      data.instances = [];
+    }
+
     const markdown = generateMarkdown(data);
     figma.ui.postMessage({ type: 'result', markdown });
   }
@@ -188,6 +197,39 @@ function analyzeNode(node) {
   };
 }
 
+function findInstances(componentNode) {
+  const instances = [];
+  const targetIds = new Set();
+
+  if (componentNode.type === 'COMPONENT') {
+    targetIds.add(componentNode.id);
+  } else if (componentNode.type === 'COMPONENT_SET') {
+    componentNode.children.forEach((child) => {
+      if (child.type === 'COMPONENT') targetIds.add(child.id);
+    });
+  }
+
+  figma.root.children.forEach((page) => {
+    page.findAll((n) => {
+      if (n.type === 'INSTANCE' && n.mainComponent && targetIds.has(n.mainComponent.id)) {
+        instances.push({
+          name: n.name,
+          page: page.name,
+          parent: n.parent ? n.parent.name : 'Unknown',
+          componentName: n.mainComponent.name,
+          width: Math.round(n.width),
+          height: Math.round(n.height),
+          x: Math.round(n.x),
+          y: Math.round(n.y),
+          visible: n.visible !== false,
+        });
+      }
+    });
+  });
+
+  return instances;
+}
+
 function rgbToHex({ r, g, b }) {
   const toHex = (v) => Math.round(v * 255).toString(16).padStart(2, '0');
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
@@ -196,7 +238,7 @@ function rgbToHex({ r, g, b }) {
 function generateMarkdown(data) {
   const lines = [];
 
-  lines.push(`# Frame: ${data.name}`);
+  lines.push(`# ${data.type === 'COMPONENT' || data.type === 'COMPONENT_SET' ? 'Component' : 'Frame'}: ${data.name}`);
   lines.push('');
   lines.push('## Overview');
   lines.push(`- **Type**: ${data.type}`);
@@ -280,6 +322,32 @@ function generateMarkdown(data) {
   if (data.components.length > 0) {
     lines.push('## Components');
     data.components.forEach((c) => lines.push(`- ${c}`));
+    lines.push('');
+  }
+
+  if (data.instances && data.instances.length > 0) {
+    lines.push('## Instances');
+    lines.push(`- **Total instances found**: ${data.instances.length}`);
+    lines.push('');
+
+    // Group by page
+    const byPage = {};
+    data.instances.forEach((inst) => {
+      if (!byPage[inst.page]) byPage[inst.page] = [];
+      byPage[inst.page].push(inst);
+    });
+
+    Object.entries(byPage).forEach(([page, insts]) => {
+      lines.push(`### Page: ${page}`);
+      insts.forEach((inst) => {
+        const hidden = inst.visible ? '' : ' ⚠ hidden';
+        lines.push(`- **${inst.name}** (${inst.componentName}) — ${inst.width}×${inst.height} at (${inst.x}, ${inst.y}) in "${inst.parent}"${hidden}`);
+      });
+      lines.push('');
+    });
+  } else if (data.instances && data.instances.length === 0 && (data.type === 'COMPONENT' || data.type === 'COMPONENT_SET')) {
+    lines.push('## Instances');
+    lines.push('- No instances found in this file.');
     lines.push('');
   }
 
