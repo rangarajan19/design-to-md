@@ -5,11 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Frame to Markdown</title>
   <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -19,24 +15,96 @@
       font-size: 13px;
     }
 
-    h1 {
-      font-size: 15px;
-      font-weight: 600;
-      margin-bottom: 12px;
-      color: #ffffff;
+    h1 { font-size: 15px; font-weight: 600; margin-bottom: 4px; color: #fff; }
+
+    p.hint { color: #888; margin-bottom: 12px; font-size: 11px; line-height: 1.5; }
+
+    /* Sections toggle panel */
+    .sections-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #2a2a2a;
+      border: 1px solid #3a3a3a;
+      border-radius: 6px;
+      padding: 7px 10px;
+      cursor: pointer;
+      margin-bottom: 2px;
+      user-select: none;
+    }
+    .sections-header span { font-size: 12px; color: #ccc; font-weight: 500; }
+    .sections-header .arrow { font-size: 10px; color: #888; transition: transform 0.2s; }
+    .sections-header.open .arrow { transform: rotate(180deg); }
+
+    .sections-panel {
+      display: none;
+      background: #242424;
+      border: 1px solid #3a3a3a;
+      border-top: none;
+      border-radius: 0 0 6px 6px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    .sections-panel.open { display: block; }
+
+    .sections-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 12px;
     }
 
-    p.hint {
-      color: #888;
-      margin-bottom: 16px;
-      line-height: 1.5;
+    .section-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      font-size: 11px;
+      color: #ccc;
+    }
+    .section-item input[type="checkbox"] {
+      accent-color: #0d99ff;
+      width: 12px;
+      height: 12px;
+      cursor: pointer;
     }
 
-    .btn-row {
+    .select-links {
       display: flex;
       gap: 8px;
-      margin-bottom: 12px;
+      margin-top: 8px;
+      border-top: 1px solid #333;
+      padding-top: 8px;
     }
+    .select-links a {
+      font-size: 10px;
+      color: #0d99ff;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .select-links a:hover { text-decoration: underline; }
+
+    /* Filename input */
+    .filename-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .filename-row label { font-size: 11px; color: #888; white-space: nowrap; }
+    .filename-row input {
+      flex: 1;
+      background: #141414;
+      border: 1px solid #333;
+      border-radius: 5px;
+      color: #d4d4d4;
+      padding: 5px 8px;
+      font-size: 11px;
+      outline: none;
+    }
+    .filename-row input:focus { border-color: #0d99ff; }
+
+    /* Buttons */
+    .btn-row { display: flex; gap: 8px; margin-bottom: 10px; }
 
     button {
       flex: 1;
@@ -49,10 +117,7 @@
       transition: background 0.15s;
     }
 
-    #generateBtn {
-      background: #0d99ff;
-      color: #fff;
-    }
+    #generateBtn { background: #0d99ff; color: #fff; }
     #generateBtn:hover { background: #0b87e0; }
 
     #copyBtn, #downloadBtn {
@@ -61,15 +126,30 @@
       border: 1px solid #3a3a3a;
     }
     #copyBtn:hover, #downloadBtn:hover { background: #383838; }
+    #copyBtn:disabled, #downloadBtn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-    #copyBtn:disabled, #downloadBtn:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
+    /* Tabs */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid #333;
+      margin-bottom: 8px;
     }
+    .tab {
+      padding: 5px 14px;
+      font-size: 11px;
+      cursor: pointer;
+      color: #888;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: color 0.15s;
+    }
+    .tab.active { color: #0d99ff; border-bottom-color: #0d99ff; }
+    .tab:hover:not(.active) { color: #ccc; }
 
+    /* Content area */
     textarea {
       width: 100%;
-      height: 360px;
+      height: 300px;
       background: #141414;
       color: #d4d4d4;
       border: 1px solid #333;
@@ -81,33 +161,87 @@
       resize: none;
       outline: none;
     }
+    textarea:focus { border-color: #0d99ff; }
 
-    textarea:focus {
-      border-color: #0d99ff;
+    #preview {
+      display: none;
+      width: 100%;
+      height: 300px;
+      background: #141414;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 12px;
+      overflow-y: auto;
+      font-size: 12px;
+      line-height: 1.7;
+      color: #d4d4d4;
     }
+    #preview h1 { font-size: 16px; color: #fff; margin: 0 0 8px; }
+    #preview h2 { font-size: 13px; color: #fff; margin: 14px 0 6px; border-bottom: 1px solid #333; padding-bottom: 4px; }
+    #preview h3 { font-size: 12px; color: #ccc; margin: 10px 0 4px; }
+    #preview ul { padding-left: 16px; margin: 4px 0; }
+    #preview li { margin: 2px 0; }
+    #preview code { background: #1f1f1f; border: 1px solid #3a3a3a; border-radius: 3px; padding: 1px 5px; font-family: monospace; font-size: 10px; color: #89d185; }
+    #preview strong { color: #fff; }
+    #preview hr { border: none; border-top: 1px solid #333; margin: 12px 0; }
+    #preview blockquote { border-left: 3px solid #0d99ff; padding-left: 10px; color: #888; margin: 6px 0; font-size: 11px; }
 
-    #status {
-      margin-top: 8px;
-      font-size: 11px;
-      color: #888;
-      min-height: 16px;
-    }
-
+    #status { margin-top: 8px; font-size: 11px; color: #888; min-height: 16px; }
     #status.error { color: #ff6b6b; }
     #status.success { color: #6bcb77; }
   </style>
 </head>
 <body>
   <h1>Frame to Markdown</h1>
-  <p class="hint">Select a frame in Figma, then click Generate.</p>
+  <p class="hint">Select one or more frames or components, then click Generate.</p>
 
+  <!-- Section toggles -->
+  <div class="sections-header" id="sectionsHeader">
+    <span>Sections to include</span>
+    <span class="arrow">▼</span>
+  </div>
+  <div class="sections-panel" id="sectionsPanel">
+    <div class="sections-grid">
+      <label class="section-item"><input type="checkbox" value="overview" checked> Overview</label>
+      <label class="section-item"><input type="checkbox" value="visualStructure" checked> Visual Structure</label>
+      <label class="section-item"><input type="checkbox" value="textContent" checked> Text Content</label>
+      <label class="section-item"><input type="checkbox" value="solidColors" checked> Solid Colors</label>
+      <label class="section-item"><input type="checkbox" value="gradients" checked> Gradients</label>
+      <label class="section-item"><input type="checkbox" value="strokeColors" checked> Stroke Colors</label>
+      <label class="section-item"><input type="checkbox" value="imageFills" checked> Image Fills</label>
+      <label class="section-item"><input type="checkbox" value="opacityBlend" checked> Opacity & Blend</label>
+      <label class="section-item"><input type="checkbox" value="autoLayout" checked> Auto-layout</label>
+      <label class="section-item"><input type="checkbox" value="components" checked> Components</label>
+      <label class="section-item"><input type="checkbox" value="instances" checked> Instances</label>
+    </div>
+    <div class="select-links">
+      <a id="selectAll">Select all</a>
+      <a id="deselectAll">Deselect all</a>
+    </div>
+  </div>
+
+  <!-- Filename -->
+  <div class="filename-row">
+    <label for="filenameInput">Filename:</label>
+    <input type="text" id="filenameInput" placeholder="frame" />
+    <span style="font-size:11px;color:#555;">.md</span>
+  </div>
+
+  <!-- Buttons -->
   <div class="btn-row">
     <button id="generateBtn">Generate Markdown</button>
     <button id="copyBtn" disabled>Copy</button>
     <button id="downloadBtn" disabled>Download .md</button>
   </div>
 
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" data-tab="raw">Raw</div>
+    <div class="tab" data-tab="preview">Preview</div>
+  </div>
+
   <textarea id="output" placeholder="Your markdown will appear here..." readonly></textarea>
+  <div id="preview"></div>
   <div id="status"></div>
 
   <script>
@@ -115,16 +249,62 @@
     const copyBtn = document.getElementById('copyBtn');
     const downloadBtn = document.getElementById('downloadBtn');
     const output = document.getElementById('output');
+    const preview = document.getElementById('preview');
     const status = document.getElementById('status');
+    const filenameInput = document.getElementById('filenameInput');
+    const sectionsHeader = document.getElementById('sectionsHeader');
+    const sectionsPanel = document.getElementById('sectionsPanel');
+    let exportCount = 1;
+    let activeTab = 'raw';
 
+    // Sections toggle panel
+    sectionsHeader.addEventListener('click', () => {
+      sectionsHeader.classList.toggle('open');
+      sectionsPanel.classList.toggle('open');
+    });
+
+    document.getElementById('selectAll').addEventListener('click', (e) => {
+      e.preventDefault();
+      sectionsPanel.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+    });
+
+    document.getElementById('deselectAll').addEventListener('click', (e) => {
+      e.preventDefault();
+      sectionsPanel.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+    });
+
+    function getSelectedSections() {
+      return Array.from(sectionsPanel.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value);
+    }
+
+    // Tabs
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        activeTab = tab.dataset.tab;
+        if (activeTab === 'raw') {
+          output.style.display = 'block';
+          preview.style.display = 'none';
+        } else {
+          output.style.display = 'none';
+          preview.style.display = 'block';
+          preview.innerHTML = renderMarkdown(output.value);
+        }
+      });
+    });
+
+    // Generate
     generateBtn.addEventListener('click', () => {
       setStatus('', '');
       output.value = '';
+      preview.innerHTML = '';
       copyBtn.disabled = true;
       downloadBtn.disabled = true;
-      parent.postMessage({ pluginMessage: { type: 'generate' } }, '*');
+      parent.postMessage({ pluginMessage: { type: 'generate', sections: getSelectedSections() } }, '*');
     });
 
+    // Copy
     copyBtn.addEventListener('click', () => {
       navigator.clipboard.writeText(output.value).then(() => {
         setStatus('Copied to clipboard!', 'success');
@@ -135,26 +315,32 @@
       });
     });
 
+    // Download
     downloadBtn.addEventListener('click', () => {
+      const name = filenameInput.value.trim() || (exportCount > 1 ? 'frames' : 'frame');
       const blob = new Blob([output.value], { type: 'text/markdown' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'frame.md';
+      a.download = `${name}.md`;
       a.click();
       URL.revokeObjectURL(url);
-      setStatus('Downloaded frame.md', 'success');
+      setStatus(`Downloaded ${name}.md`, 'success');
     });
 
+    // Message handler
     window.onmessage = (event) => {
       const msg = event.data.pluginMessage;
       if (!msg) return;
 
       if (msg.type === 'result') {
         output.value = msg.markdown;
+        exportCount = msg.count || 1;
         copyBtn.disabled = false;
         downloadBtn.disabled = false;
-        setStatus('Markdown generated successfully.', 'success');
+        if (activeTab === 'preview') preview.innerHTML = renderMarkdown(msg.markdown);
+        const label = exportCount > 1 ? `${exportCount} frames exported successfully.` : 'Markdown generated successfully.';
+        setStatus(label, 'success');
       }
 
       if (msg.type === 'error') {
@@ -165,6 +351,54 @@
     function setStatus(text, type) {
       status.textContent = text;
       status.className = type;
+    }
+
+    // Simple markdown renderer
+    function renderMarkdown(md) {
+      if (!md) return '';
+      const lines = md.split('\n');
+      let html = '';
+      let inList = false;
+
+      lines.forEach((line) => {
+        if (line.startsWith('### ')) {
+          if (inList) { html += '</ul>'; inList = false; }
+          html += `<h3>${escape(line.slice(4))}</h3>`;
+        } else if (line.startsWith('## ')) {
+          if (inList) { html += '</ul>'; inList = false; }
+          html += `<h2>${escape(line.slice(3))}</h2>`;
+        } else if (line.startsWith('# ')) {
+          if (inList) { html += '</ul>'; inList = false; }
+          html += `<h1>${escape(line.slice(2))}</h1>`;
+        } else if (line.startsWith('> ')) {
+          if (inList) { html += '</ul>'; inList = false; }
+          html += `<blockquote>${escape(line.slice(2))}</blockquote>`;
+        } else if (line.startsWith('- ') || line.startsWith('  - ')) {
+          if (!inList) { html += '<ul>'; inList = true; }
+          html += `<li>${inline(escape(line.replace(/^\s*- /, '')))}</li>`;
+        } else if (line === '---') {
+          if (inList) { html += '</ul>'; inList = false; }
+          html += '<hr>';
+        } else if (line.trim() === '') {
+          if (inList) { html += '</ul>'; inList = false; }
+        } else {
+          if (inList) { html += '</ul>'; inList = false; }
+          html += `<p>${inline(escape(line))}</p>`;
+        }
+      });
+
+      if (inList) html += '</ul>';
+      return html;
+    }
+
+    function escape(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function inline(str) {
+      return str
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>');
     }
   </script>
 </body>

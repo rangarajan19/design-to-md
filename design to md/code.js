@@ -1,4 +1,4 @@
-figma.showUI(__html__, { width: 480, height: 600 });
+figma.showUI(__html__, { width: 480, height: 760 });
 
 figma.ui.onmessage = (msg) => {
   if (msg.type === 'generate') {
@@ -9,24 +9,26 @@ figma.ui.onmessage = (msg) => {
       return;
     }
 
-    const node = selection[0];
     const allowed = ['FRAME', 'COMPONENT', 'COMPONENT_SET', 'GROUP'];
-    if (!allowed.includes(node.type)) {
-      figma.ui.postMessage({ type: 'error', message: 'Please select a Frame, Component, Component Set, or Group.' });
+    const validNodes = selection.filter((n) => allowed.includes(n.type));
+
+    if (validNodes.length === 0) {
+      figma.ui.postMessage({ type: 'error', message: 'Please select at least one Frame, Component, Component Set, or Group.' });
       return;
     }
 
-    const data = analyzeNode(node);
+    const markdownSections = validNodes.map((node) => {
+      const data = analyzeNode(node);
+      if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') {
+        data.instances = findInstances(node);
+      } else {
+        data.instances = [];
+      }
+      return generateMarkdown(data, msg.sections);
+    });
 
-    // Find instances if a component or component set is selected
-    if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') {
-      data.instances = findInstances(node);
-    } else {
-      data.instances = [];
-    }
-
-    const markdown = generateMarkdown(data);
-    figma.ui.postMessage({ type: 'result', markdown });
+    const markdown = markdownSections.join('\n\n---\n\n');
+    figma.ui.postMessage({ type: 'result', markdown, count: validNodes.length });
   }
 
   if (msg.type === 'close') {
@@ -235,24 +237,31 @@ function rgbToHex({ r, g, b }) {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
 }
 
-function generateMarkdown(data) {
+function generateMarkdown(data, sections) {
+  const has = (key) => !sections || sections.includes(key);
   const lines = [];
 
-  lines.push(`# ${data.type === 'COMPONENT' || data.type === 'COMPONENT_SET' ? 'Component' : 'Frame'}: ${data.name}`);
-  lines.push('');
-  lines.push('## Overview');
-  lines.push(`- **Type**: ${data.type}`);
-  lines.push(`- **Dimensions**: ${data.width} × ${data.height}`);
-  lines.push(`- **Total Layers**: ${data.layers.length}`);
+  const title = data.type === 'COMPONENT' || data.type === 'COMPONENT_SET' ? 'Component' : 'Frame';
+  lines.push(`# ${title}: ${data.name}`);
   lines.push('');
 
-  lines.push('## Visual Structure');
-  lines.push('> Format: [TYPE] Name — W×H at (x, y)');
-  lines.push('');
-  data.layers.forEach((l) => lines.push(l));
-  lines.push('');
+  if (has('overview')) {
+    lines.push('## Overview');
+    lines.push(`- **Type**: ${data.type}`);
+    lines.push(`- **Dimensions**: ${data.width} × ${data.height}`);
+    lines.push(`- **Total Layers**: ${data.layers.length}`);
+    lines.push('');
+  }
 
-  if (data.textNodes.length > 0) {
+  if (has('visualStructure')) {
+    lines.push('## Visual Structure');
+    lines.push('> Format: [TYPE] Name — W×H at (x, y)');
+    lines.push('');
+    data.layers.forEach((l) => lines.push(l));
+    lines.push('');
+  }
+
+  if (has('textContent') && data.textNodes.length > 0) {
     lines.push('## Text Content');
     data.textNodes.forEach((t) => {
       lines.push(`### ${t.name}`);
@@ -271,31 +280,31 @@ function generateMarkdown(data) {
     });
   }
 
-  if (data.solidColors.length > 0) {
+  if (has('solidColors') && data.solidColors.length > 0) {
     lines.push('## Solid Colors');
     data.solidColors.forEach((c) => lines.push(`- \`${c}\``));
     lines.push('');
   }
 
-  if (data.gradients.length > 0) {
+  if (has('gradients') && data.gradients.length > 0) {
     lines.push('## Gradients');
     data.gradients.forEach((g) => lines.push(`- ${g}`));
     lines.push('');
   }
 
-  if (data.strokeColors.length > 0) {
+  if (has('strokeColors') && data.strokeColors.length > 0) {
     lines.push('## Stroke Colors');
     data.strokeColors.forEach((c) => lines.push(`- \`${c}\``));
     lines.push('');
   }
 
-  if (data.imageFillCount > 0) {
+  if (has('imageFills') && data.imageFillCount > 0) {
     lines.push('## Image Fills');
     lines.push(`- ${data.imageFillCount} image fill(s) detected`);
     lines.push('');
   }
 
-  if (data.opacityNodes.length > 0) {
+  if (has('opacityBlend') && data.opacityNodes.length > 0) {
     lines.push('## Opacity & Blend Modes');
     data.opacityNodes.forEach((o) => {
       lines.push(`- **[${o.type}] ${o.name}** — Opacity: ${o.opacity}%, Blend: ${o.blendMode}`);
@@ -303,7 +312,7 @@ function generateMarkdown(data) {
     lines.push('');
   }
 
-  if (data.spacingNodes.length > 0) {
+  if (has('autoLayout') && data.spacingNodes.length > 0) {
     lines.push('## Auto-layout & Spacing');
     data.spacingNodes.forEach((s) => {
       lines.push(`### ${s.name}`);
@@ -319,36 +328,35 @@ function generateMarkdown(data) {
     });
   }
 
-  if (data.components.length > 0) {
+  if (has('components') && data.components.length > 0) {
     lines.push('## Components');
     data.components.forEach((c) => lines.push(`- ${c}`));
     lines.push('');
   }
 
-  if (data.instances && data.instances.length > 0) {
-    lines.push('## Instances');
-    lines.push(`- **Total instances found**: ${data.instances.length}`);
-    lines.push('');
-
-    // Group by page
-    const byPage = {};
-    data.instances.forEach((inst) => {
-      if (!byPage[inst.page]) byPage[inst.page] = [];
-      byPage[inst.page].push(inst);
-    });
-
-    Object.entries(byPage).forEach(([page, insts]) => {
-      lines.push(`### Page: ${page}`);
-      insts.forEach((inst) => {
-        const hidden = inst.visible ? '' : ' ⚠ hidden';
-        lines.push(`- **${inst.name}** (${inst.componentName}) — ${inst.width}×${inst.height} at (${inst.x}, ${inst.y}) in "${inst.parent}"${hidden}`);
-      });
+  if (has('instances')) {
+    if (data.instances && data.instances.length > 0) {
+      lines.push('## Instances');
+      lines.push(`- **Total instances found**: ${data.instances.length}`);
       lines.push('');
-    });
-  } else if (data.instances && data.instances.length === 0 && (data.type === 'COMPONENT' || data.type === 'COMPONENT_SET')) {
-    lines.push('## Instances');
-    lines.push('- No instances found in this file.');
-    lines.push('');
+      const byPage = {};
+      data.instances.forEach((inst) => {
+        if (!byPage[inst.page]) byPage[inst.page] = [];
+        byPage[inst.page].push(inst);
+      });
+      Object.entries(byPage).forEach(([page, insts]) => {
+        lines.push(`### Page: ${page}`);
+        insts.forEach((inst) => {
+          const hidden = inst.visible ? '' : ' ⚠ hidden';
+          lines.push(`- **${inst.name}** (${inst.componentName}) — ${inst.width}×${inst.height} at (${inst.x}, ${inst.y}) in "${inst.parent}"${hidden}`);
+        });
+        lines.push('');
+      });
+    } else if (data.instances && data.instances.length === 0 && (data.type === 'COMPONENT' || data.type === 'COMPONENT_SET')) {
+      lines.push('## Instances');
+      lines.push('- No instances found in this file.');
+      lines.push('');
+    }
   }
 
   return lines.join('\n');
