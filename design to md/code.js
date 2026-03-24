@@ -27,22 +27,100 @@ figma.ui.onmessage = (msg) => {
 
 function analyzeNode(node) {
   const textNodes = [];
-  const colors = new Set();
+  const solidColors = new Set();
+  const gradients = [];
+  const strokeColors = new Set();
+  let imageFillCount = 0;
   const components = [];
   const layers = [];
+  const spacingNodes = [];
+  const opacityNodes = [];
+
+  const isMixed = (v) => typeof v === 'symbol';
+
+  function extractFills(fills, nodeName) {
+    if (!Array.isArray(fills)) return;
+    fills.forEach((fill) => {
+      if (!fill.visible && fill.visible !== undefined) return;
+      if (fill.type === 'SOLID' && fill.color) {
+        solidColors.add(rgbToHex(fill.color));
+      } else if (fill.type === 'IMAGE') {
+        imageFillCount++;
+      } else if (
+        fill.type === 'GRADIENT_LINEAR' ||
+        fill.type === 'GRADIENT_RADIAL' ||
+        fill.type === 'GRADIENT_ANGULAR' ||
+        fill.type === 'GRADIENT_DIAMOND'
+      ) {
+        const stops = fill.gradientStops
+          ? fill.gradientStops.map((s) => rgbToHex(s.color)).join(' → ')
+          : 'unknown stops';
+        const label = `[${nodeName}] ${fill.type}: ${stops}`;
+        if (!gradients.includes(label)) gradients.push(label);
+      }
+    });
+  }
+
+  function extractStrokes(strokes) {
+    if (!Array.isArray(strokes)) return;
+    strokes.forEach((stroke) => {
+      if (stroke.type === 'SOLID' && stroke.color) {
+        strokeColors.add(rgbToHex(stroke.color));
+      }
+    });
+  }
 
   function traverse(n, depth) {
     const indent = '  '.repeat(depth);
-    const label = `${indent}- [${n.type}] ${n.name}`;
-    layers.push(label);
+    const w = Math.round(n.width);
+    const h = Math.round(n.height);
+    const x = Math.round(n.x);
+    const y = Math.round(n.y);
+    const visibility = n.visible === false ? ' ⚠ hidden' : '';
+    layers.push(`${indent}- [${n.type}] ${n.name} — ${w}×${h} at (${x}, ${y})${visibility}`);
 
     if (n.type === 'TEXT') {
-      const isMixed = (v) => typeof v === 'symbol';
+      const segments = [];
+
+      if (isMixed(n.fontSize) || isMixed(n.fontName)) {
+        // Break into segments by character
+        let i = 0;
+        while (i < n.characters.length) {
+          const size = n.getRangeFontSize(i, i + 1);
+          const font = n.getRangeFontName(i, i + 1);
+          const color = n.getRangeFills(i, i + 1);
+
+          // Find how far this style run extends
+          let j = i + 1;
+          while (j < n.characters.length) {
+            const nextSize = n.getRangeFontSize(j, j + 1);
+            const nextFont = n.getRangeFontName(j, j + 1);
+            if (nextSize !== size || nextFont.family !== font.family || nextFont.style !== font.style) break;
+            j++;
+          }
+
+          const segColor = Array.isArray(color) && color[0] && color[0].type === 'SOLID'
+            ? rgbToHex(color[0].color)
+            : null;
+
+          segments.push({
+            text: n.characters.slice(i, j),
+            fontSize: size,
+            fontFamily: font.family || 'Unknown',
+            fontStyle: font.style || '',
+            color: segColor,
+          });
+
+          i = j;
+        }
+      }
+
       textNodes.push({
         name: n.name,
         content: n.characters,
         fontSize: isMixed(n.fontSize) ? 'Mixed' : n.fontSize,
         fontName: isMixed(n.fontName) || !n.fontName ? 'Mixed' : (n.fontName.family || 'Unknown'),
+        segments,
       });
     }
 
@@ -53,12 +131,36 @@ function analyzeNode(node) {
       if (!components.includes(compName)) components.push(compName);
     }
 
-    // Extract fills colors
-    if ('fills' in n && Array.isArray(n.fills)) {
-      n.fills.forEach((fill) => {
-        if (fill.type === 'SOLID' && fill.color) {
-          colors.add(rgbToHex(fill.color));
-        }
+    if ('fills' in n) extractFills(n.fills, n.name);
+    if ('strokes' in n) extractStrokes(n.strokes);
+
+    // Opacity and blend mode
+    const hasOpacity = 'opacity' in n && n.opacity !== 1;
+    const hasBlend = 'blendMode' in n && n.blendMode !== 'NORMAL' && n.blendMode !== 'PASS_THROUGH';
+    if (hasOpacity || hasBlend) {
+      opacityNodes.push({
+        name: n.name,
+        type: n.type,
+        opacity: 'opacity' in n ? Math.round(n.opacity * 100) : 100,
+        blendMode: n.blendMode || 'NORMAL',
+      });
+    }
+
+    // Spacing & Auto-layout: available on FRAME and COMPONENT nodes with auto-layout
+    if (n.layoutMode && n.layoutMode !== 'NONE') {
+      spacingNodes.push({
+        name: n.name,
+        paddingTop: n.paddingTop || 0,
+        paddingBottom: n.paddingBottom || 0,
+        paddingLeft: n.paddingLeft || 0,
+        paddingRight: n.paddingRight || 0,
+        itemSpacing: n.itemSpacing || 0,
+        layoutMode: n.layoutMode,
+        primaryAxisAlignItems: n.primaryAxisAlignItems || 'N/A',
+        counterAxisAlignItems: n.counterAxisAlignItems || 'N/A',
+        primaryAxisSizingMode: n.primaryAxisSizingMode || 'N/A',
+        counterAxisSizingMode: n.counterAxisSizingMode || 'N/A',
+        layoutWrap: n.layoutWrap || 'NO_WRAP',
       });
     }
 
@@ -76,7 +178,12 @@ function analyzeNode(node) {
     height: Math.round(node.height),
     layers,
     textNodes,
-    colors: Array.from(colors),
+    solidColors: Array.from(solidColors),
+    gradients,
+    strokeColors: Array.from(strokeColors),
+    imageFillCount,
+    spacingNodes,
+    opacityNodes,
     components,
   };
 }
@@ -97,7 +204,9 @@ function generateMarkdown(data) {
   lines.push(`- **Total Layers**: ${data.layers.length}`);
   lines.push('');
 
-  lines.push('## Layer Structure');
+  lines.push('## Visual Structure');
+  lines.push('> Format: [TYPE] Name — W×H at (x, y)');
+  lines.push('');
   data.layers.forEach((l) => lines.push(l));
   lines.push('');
 
@@ -105,16 +214,67 @@ function generateMarkdown(data) {
     lines.push('## Text Content');
     data.textNodes.forEach((t) => {
       lines.push(`### ${t.name}`);
-      lines.push(`- **Content**: ${t.content}`);
-      lines.push(`- **Font**: ${t.fontName}, ${t.fontSize}px`);
+      if (t.segments && t.segments.length > 0) {
+        lines.push(`- **Content**: ${t.content}`);
+        lines.push(`- **Mixed Styles**:`);
+        t.segments.forEach((s, i) => {
+          const colorStr = s.color ? `, Color: \`${s.color}\`` : '';
+          lines.push(`  - Segment ${i + 1}: "${s.text}" — ${s.fontFamily} ${s.fontStyle}, ${s.fontSize}px${colorStr}`);
+        });
+      } else {
+        lines.push(`- **Content**: ${t.content}`);
+        lines.push(`- **Font**: ${t.fontName}, ${t.fontSize}px`);
+      }
       lines.push('');
     });
   }
 
-  if (data.colors.length > 0) {
-    lines.push('## Colors Used');
-    data.colors.forEach((c) => lines.push(`- \`${c}\``));
+  if (data.solidColors.length > 0) {
+    lines.push('## Solid Colors');
+    data.solidColors.forEach((c) => lines.push(`- \`${c}\``));
     lines.push('');
+  }
+
+  if (data.gradients.length > 0) {
+    lines.push('## Gradients');
+    data.gradients.forEach((g) => lines.push(`- ${g}`));
+    lines.push('');
+  }
+
+  if (data.strokeColors.length > 0) {
+    lines.push('## Stroke Colors');
+    data.strokeColors.forEach((c) => lines.push(`- \`${c}\``));
+    lines.push('');
+  }
+
+  if (data.imageFillCount > 0) {
+    lines.push('## Image Fills');
+    lines.push(`- ${data.imageFillCount} image fill(s) detected`);
+    lines.push('');
+  }
+
+  if (data.opacityNodes.length > 0) {
+    lines.push('## Opacity & Blend Modes');
+    data.opacityNodes.forEach((o) => {
+      lines.push(`- **[${o.type}] ${o.name}** — Opacity: ${o.opacity}%, Blend: ${o.blendMode}`);
+    });
+    lines.push('');
+  }
+
+  if (data.spacingNodes.length > 0) {
+    lines.push('## Auto-layout & Spacing');
+    data.spacingNodes.forEach((s) => {
+      lines.push(`### ${s.name}`);
+      lines.push(`- **Direction**: ${s.layoutMode}`);
+      lines.push(`- **Wrap**: ${s.layoutWrap}`);
+      lines.push(`- **Primary Axis Align**: ${s.primaryAxisAlignItems}`);
+      lines.push(`- **Counter Axis Align**: ${s.counterAxisAlignItems}`);
+      lines.push(`- **Primary Axis Sizing**: ${s.primaryAxisSizingMode}`);
+      lines.push(`- **Counter Axis Sizing**: ${s.counterAxisSizingMode}`);
+      lines.push(`- **Item Spacing**: ${s.itemSpacing}px`);
+      lines.push(`- **Padding**: Top ${s.paddingTop}px, Right ${s.paddingRight}px, Bottom ${s.paddingBottom}px, Left ${s.paddingLeft}px`);
+      lines.push('');
+    });
   }
 
   if (data.components.length > 0) {
